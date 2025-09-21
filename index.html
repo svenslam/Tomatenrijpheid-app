@@ -152,16 +152,17 @@ return {score, rAvg, gAvg, bAvg, dominance};
           canvas.width = vw;
           canvas.height = vh;
           const ctx = canvas.getContext('2d');
-          if (MIRROR_DISPLAY) {
-    // draai canvas horizontaal om zodat de canvas-uitvoer overeenkomt met een gespiegeld preview
-    ctx.save();
-    ctx.translate(vw, 0);
-    ctx.scale(-1, 1);
-    ctx.drawImage(video, 0, 0, vw, vh);
-    ctx.restore();
-    } else {
-    ctx.drawImage(video, 0, 0, vw, vh);
-  }
+           // --- AANPASSING START ---
+            // Dit zorgt ervoor dat het canvas consistent de beelden van de video stream vastlegt.
+            // Dit is cruciaal voor een stabiele analyse op iOS.
+            try {
+                ctx.drawImage(video, 0, 0, vw, vh);
+            } catch (e) {
+                // Soms kan drawImage een fout geven op iOS bij snelle updates.
+                // We negeren de fout en proberen het volgende frame.
+                console.error("Fout bij tekenen van video op canvas:", e);
+            }
+            // --- AANPASSING EINDE ---
 
           const rect = square.getBoundingClientRect();
           const vidRect = video.getBoundingClientRect();
@@ -260,6 +261,7 @@ messageBox.textContent = `Rijp ijkpunt vastgelegd (Dominantie=${refDominance.toF
   </script>
 </body>
 </html>
+
 
 
 
