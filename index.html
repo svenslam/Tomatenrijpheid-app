@@ -25,7 +25,7 @@
       object-fit: cover;
       width: 100%;
       height: 100%;
-      /* transform: scaleX(-1); weggelaten om spiegelbeeld te voorkomen*/
+     /* transform: scaleX(-1); weggelaten om spiegelbeeld te voorkomen */
     }
   </style>
 </head>
@@ -77,6 +77,11 @@
 
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     function playPing(){
+      // Zet dit vroeg in het script (na audioCtx)
+    const MIRROR_DISPLAY = false; // false = niet gespiegeld (aanbevolen). Zet true als je een selfie-achtige preview wilt.
+
+     // Zorg dat het zichtbaar preview (video element) dezelfde oriëntatie krijgt
+      video.style.transform = MIRROR_DISPLAY ? 'scaleX(-1)' : 'none';
       const o = audioCtx.createOscillator();
       const g = audioCtx.createGain();
       o.type = 'sine';
@@ -147,7 +152,16 @@ return {score, rAvg, gAvg, bAvg, dominance};
           canvas.width = vw;
           canvas.height = vh;
           const ctx = canvas.getContext('2d');
-          ctx.drawImage(video, 0, 0, vw, vh);
+          if (MIRROR_DISPLAY) {
+    // draai canvas horizontaal om zodat de canvas-uitvoer overeenkomt met een gespiegeld preview
+    ctx.save();
+    ctx.translate(vw, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(video, 0, 0, vw, vh);
+    ctx.restore();
+    } else {
+    ctx.drawImage(video, 0, 0, vw, vh);
+  }
 
           const rect = square.getBoundingClientRect();
           const vidRect = video.getBoundingClientRect();
@@ -246,5 +260,6 @@ messageBox.textContent = `Rijp ijkpunt vastgelegd (Dominantie=${refDominance.toF
   </script>
 </body>
 </html>
+
 
 
