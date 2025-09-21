@@ -126,13 +126,17 @@
       const gAvg = gSum/count;
       const bAvg = bSum/count;
       const dominance = rAvg - Math.max(gAvg,bAvg);
-      let adj = dominance;
-      if(refDominance !== null){
-        adj = dominance - refDominance;
-      }
-      const normalized = Math.max(0, Math.min(255, adj));
-      const score = Math.round((normalized / 255) * 100);
-      return {score, rAvg, gAvg, bAvg, dominance};
+      let score;
+if (refDominance !== null && refDominance > 0) {
+  // Bepaal de verhouding t.o.v. het rijp-ijkpunt
+  const ratio = dominance / refDominance;
+  score = Math.round(Math.max(0, Math.min(100, ratio * 100)));
+} else {
+  // Zonder ijkpunt: gebruik ruwe schaal
+  const normalized = Math.max(0, Math.min(255, dominance));
+  score = Math.round((normalized / 255) * 100);
+}
+return {score, rAvg, gAvg, bAvg, dominance};
     }
 
     function processFrame(){
@@ -169,7 +173,8 @@
 
             range.value = score;
             scoreText.textContent = score + '%';
-            const status = score >= 75 ? 'Rijp' : (score >= 40 ? 'Geleidelijk' : 'Onrijp');
+            // Met marge: alles boven 90% van het ijkpunt telt als rijp
+            const status = score >= 90 ? 'Rijp' : (score >= 50 ? 'Geleidelijk' : 'Onrijp');
             statusText.textContent = 'Status: ' + status;
             messageBox.textContent = `Score: ${score}% — Status: ${status}. (R=${Math.round(result.rAvg)}, G=${Math.round(result.gAvg)}, B=${Math.round(result.bAvg)})`;
 
@@ -226,8 +231,8 @@
           const rAvg = rSum/count;
           const gAvg = gSum/count;
           const bAvg = bSum/count;
-          refDominance = rAvg - Math.max(gAvg,bAvg);
-          messageBox.textContent = `Gecalibreerd. Referentie-instelling vastgelegd (R≈${Math.round(rAvg)}, G≈${Math.round(gAvg)}, B≈${Math.round(bAvg)}).`;
+         refDominance = rAvg - Math.max(gAvg, bAvg);
+messageBox.textContent = `Rijp ijkpunt vastgelegd (Dominantie=${refDominance.toFixed(1)}). Alle nieuwe metingen worden hieraan vergeleken.`;
           if(audioCtx.state === 'suspended') audioCtx.resume();
         }
       }else{
@@ -241,3 +246,4 @@
   </script>
 </body>
 </html>
+
