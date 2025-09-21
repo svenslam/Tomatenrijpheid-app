@@ -1,0 +1,243 @@
+<!-- index.html -->
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Tomatenrijpheid App</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#16a34a" />
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="apple-touch-icon" href="icon-192.png">
+
+  <style>
+    .overlay-square {
+      position: absolute;
+      border: 2px dotted rgba(255,255,255,0.9);
+      box-sizing: border-box;
+      pointer-events: none;
+    }
+    #videoElem {
+      object-fit: cover;
+      width: 100%;
+      height: 100%;
+      transform: scaleX(-1);
+    }
+  </style>
+</head>
+<body class="bg-gray-900 text-white h-screen">
+  <div class="relative w-full h-screen overflow-hidden">
+    <video id="videoElem" autoplay playsinline muted webkit-playsinline class="absolute inset-0 w-full h-full"></video>
+    <canvas id="captureCanvas" style="display:none"></canvas>
+    <div id="square" class="overlay-square"></div>
+
+    <div class="absolute bottom-4 left-1/2 transform -translate-x-1/2 w-11/12 md:w-2/3 bg-black/50 backdrop-blur-sm rounded-2xl p-4 flex flex-col gap-3">
+      <div class="flex items-center justify-between gap-4">
+        <button id="calibrateBtn" class="px-4 py-2 rounded-2xl bg-green-600/80 hover:bg-green-600">Calibreren</button>
+        <div class="flex-1">
+          <label for="ripenessRange" class="text-xs text-gray-300">Rijpheidsscore</label>
+          <input id="ripenessRange" type="range" min="0" max="100" value="0" class="w-full" />
+        </div>
+        <div class="w-40 text-right">
+          <div id="scoreText" class="text-xl font-semibold">0%</div>
+          <div id="statusText" class="text-sm text-gray-300">Status: Onbekend</div>
+        </div>
+      </div>
+      <div id="messageBox" class="bg-white/5 rounded-md p-3 text-sm text-gray-200">
+        Start camera en richt het vierkant op een tomaat. Klik op <strong>Calibreren</strong> om een referentie in te stellen.
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // --- PWA service worker registration ---
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('sw.js').catch(err => {
+          console.error('Service Worker registratie mislukt:', err);
+        });
+      });
+    }
+
+    const video = document.getElementById('videoElem');
+    const canvas = document.getElementById('captureCanvas');
+    const square = document.getElementById('square');
+    const range = document.getElementById('ripenessRange');
+    const scoreText = document.getElementById('scoreText');
+    const statusText = document.getElementById('statusText');
+    const messageBox = document.getElementById('messageBox');
+    const calibrateBtn = document.getElementById('calibrateBtn');
+
+    let refDominance = null;
+    let lastPinged = false;
+
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    function playPing(){
+      const o = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      o.type = 'sine';
+      o.frequency.value = 880;
+      g.gain.value = 0.001;
+      o.connect(g);
+      g.connect(audioCtx.destination);
+      o.start();
+      g.gain.exponentialRampToValueAtTime(0.02, audioCtx.currentTime + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.15);
+      o.stop(audioCtx.currentTime + 0.16);
+    }
+
+    async function startCamera(){
+      try{
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+        video.srcObject = stream;
+        await video.play();
+        resizeAndPositionSquare();
+        requestAnimationFrame(processFrame);
+      }catch(err){
+        messageBox.textContent = 'Kon de camera niet starten: ' + err.message;
+      }
+    }
+
+    function resizeAndPositionSquare(){
+      const vw = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0);
+      const vh = Math.max(document.documentElement.clientHeight || 0, window.innerHeight || 0);
+      const side = Math.min(vw, vh) * 0.25;
+      square.style.width = side + 'px';
+      square.style.height = side + 'px';
+      square.style.left = ((vw - side)/2) + 'px';
+      square.style.top = ((vh - side)/2) + 'px';
+    }
+
+    window.addEventListener('resize', resizeAndPositionSquare);
+
+    function computeScoreFromImageData(imgData){
+      const data = imgData.data;
+      let rSum=0,gSum=0,bSum=0,count=0;
+      for(let i=0;i<data.length;i+=4){
+        const r = data[i], g = data[i+1], b = data[i+2];
+        rSum += r; gSum += g; bSum += b; count++;
+      }
+      if(count === 0) return 0;
+      const rAvg = rSum/count;
+      const gAvg = gSum/count;
+      const bAvg = bSum/count;
+      const dominance = rAvg - Math.max(gAvg,bAvg);
+      let adj = dominance;
+      if(refDominance !== null){
+        adj = dominance - refDominance;
+      }
+      const normalized = Math.max(0, Math.min(255, adj));
+      const score = Math.round((normalized / 255) * 100);
+      return {score, rAvg, gAvg, bAvg, dominance};
+    }
+
+    function processFrame(){
+      if(video.readyState >= 2){
+        const vw = video.videoWidth;
+        const vh = video.videoHeight;
+        if(vw && vh){
+          canvas.width = vw;
+          canvas.height = vh;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(video, 0, 0, vw, vh);
+
+          const rect = square.getBoundingClientRect();
+          const vidRect = video.getBoundingClientRect();
+          const relLeft = rect.left - vidRect.left;
+          const relTop = rect.top - vidRect.top;
+          const scaleX = vw / vidRect.width;
+          const scaleY = vh / vidRect.height;
+
+          const sx = Math.max(0, Math.floor(relLeft * scaleX));
+          const sy = Math.max(0, Math.floor(relTop * scaleY));
+          const sWidth = Math.max(1, Math.floor(rect.width * scaleX));
+          const sHeight = Math.max(1, Math.floor(rect.height * scaleY));
+
+          const sxClamped = Math.min(sx, vw-1);
+          const syClamped = Math.min(sy, vh-1);
+          const swClamped = Math.min(sWidth, vw - sxClamped);
+          const shClamped = Math.min(sHeight, vh - syClamped);
+
+          if(swClamped > 0 && shClamped > 0){
+            const imgData = ctx.getImageData(sxClamped, syClamped, swClamped, shClamped);
+            const result = computeScoreFromImageData(imgData);
+            const score = result.score;
+
+            range.value = score;
+            scoreText.textContent = score + '%';
+            const status = score >= 75 ? 'Rijp' : (score >= 40 ? 'Geleidelijk' : 'Onrijp');
+            statusText.textContent = 'Status: ' + status;
+            messageBox.textContent = `Score: ${score}% — Status: ${status}. (R=${Math.round(result.rAvg)}, G=${Math.round(result.gAvg)}, B=${Math.round(result.bAvg)})`;
+
+            if(score > 75){
+              if(!lastPinged){
+                if(audioCtx.state === 'suspended'){
+                  audioCtx.resume().then(() => playPing());
+                }else{
+                  playPing();
+                }
+                lastPinged = true;
+              }
+            }else{
+              lastPinged = false;
+            }
+          }
+        }
+      }
+      requestAnimationFrame(processFrame);
+    }
+
+    calibrateBtn.addEventListener('click', ()=>{
+      if(video.readyState < 2){
+        messageBox.textContent = 'Camera nog niet klaar om te calibreren.';
+        return;
+      }
+      const ctx = canvas.getContext('2d');
+      const vw = video.videoWidth;
+      const vh = video.videoHeight;
+      canvas.width = vw; canvas.height = vh;
+      ctx.drawImage(video, 0, 0, vw, vh);
+
+      const rect = square.getBoundingClientRect();
+      const vidRect = video.getBoundingClientRect();
+      const scaleX = vw / vidRect.width;
+      const scaleY = vh / vidRect.height;
+      const sx = Math.max(0, Math.floor((rect.left - vidRect.left) * scaleX));
+      const sy = Math.max(0, Math.floor((rect.top - vidRect.top) * scaleY));
+      const sWidth = Math.max(1, Math.floor(rect.width * scaleX));
+      const sHeight = Math.max(1, Math.floor(rect.height * scaleY));
+      const sxClamped = Math.min(sx, vw-1);
+      const syClamped = Math.min(sy, vh-1);
+      const swClamped = Math.min(sWidth, vw - sxClamped);
+      const shClamped = Math.min(sHeight, vh - syClamped);
+
+      if(swClamped > 0 && shClamped > 0){
+        const imgData = ctx.getImageData(sxClamped, syClamped, swClamped, shClamped);
+        const data = imgData.data;
+        let rSum=0,gSum=0,bSum=0,count=0;
+        for(let i=0;i<data.length;i+=4){
+          rSum += data[i]; gSum += data[i+1]; bSum += data[i+2]; count++;
+        }
+        if(count>0){
+          const rAvg = rSum/count;
+          const gAvg = gSum/count;
+          const bAvg = bSum/count;
+          refDominance = rAvg - Math.max(gAvg,bAvg);
+          messageBox.textContent = `Gecalibreerd. Referentie-instelling vastgelegd (R≈${Math.round(rAvg)}, G≈${Math.round(gAvg)}, B≈${Math.round(bAvg)}).`;
+          if(audioCtx.state === 'suspended') audioCtx.resume();
+        }
+      }else{
+        messageBox.textContent = 'Calibratie mislukt: vierkant buiten beeld of te klein.';
+      }
+    });
+
+    range.addEventListener('input', (e)=>{ e.preventDefault(); range.value = range.value; });
+
+    startCamera();
+  </script>
+</body>
+</html>
