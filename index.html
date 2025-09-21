@@ -101,13 +101,10 @@
         video.srcObject = stream;
         await video.play();
         resizeAndPositionSquare();
-         // --- AANPASSING START ---
-        // Verwijder 'requestAnimationFrame(processFrame);'
-        // Voeg een event listener toe die de analyse start zodra de videodata geladen is.
-        video.onloadeddata = () => {
-            // We gebruiken een interval in plaats van requestAnimationFrame voor meer stabiliteit op iOS.
-            setInterval(processFrame, 100); // Analyseert elke 100 milliseconden (10 keer per seconde)
-        };
+        // --- AANPASSING START ---
+        // Verwijder 'setInterval(processFrame, 100);'
+        // We gaan terug naar de betere 'requestAnimationFrame', met extra controle.
+        requestAnimationFrame(processFrame);
         // --- AANPASSING EINDE ---
       }catch(err){
         messageBox.textContent = 'Kon de camera niet starten: ' + err.message;
@@ -150,71 +147,71 @@ if (refDominance !== null && refDominance > 0) {
 }
 return {score, rAvg, gAvg, bAvg, dominance};
     }
-
+let lastVideoTime = -1; // Nieuwe variabele om tijd te volgen
+    
     function processFrame(){
-      if(video.readyState >= 2){
-        const vw = video.videoWidth;
-        const vh = video.videoHeight;
-        if(vw && vh){
-          canvas.width = vw;
-          canvas.height = vh;
-          const ctx = canvas.getContext('2d');
-           // --- AANPASSING START ---
-            // Dit zorgt ervoor dat het canvas consistent de beelden van de video stream vastlegt.
-            // Dit is cruciaal voor een stabiele analyse op iOS.
-            try {
+     // --- AANPASSING START ---
+    // Controleer of de videotijd daadwerkelijk is veranderd sinds het laatste frame.
+    // Dit voorkomt dat we dezelfde (oude) afbeelding herhaaldelijk verwerken.
+    if (video.currentTime !== lastVideoTime) {
+        lastVideoTime = video.currentTime;
+    
+        // De rest van je code blijft in deze if-statement
+        if (video.readyState >= 2) {
+            const vw = video.videoWidth;
+            const vh = video.videoHeight;
+            if (vw && vh) {
+                canvas.width = vw;
+                canvas.height = vh;
+                const ctx = canvas.getContext('2d');
+            
                 ctx.drawImage(video, 0, 0, vw, vh);
-            } catch (e) {
-                // Soms kan drawImage een fout geven op iOS bij snelle updates.
-                // We negeren de fout en proberen het volgende frame.
-                console.error("Fout bij tekenen van video op canvas:", e);
-            }
-            // --- AANPASSING EINDE ---
 
-          const rect = square.getBoundingClientRect();
-          const vidRect = video.getBoundingClientRect();
-          const relLeft = rect.left - vidRect.left;
-          const relTop = rect.top - vidRect.top;
-          const scaleX = vw / vidRect.width;
-          const scaleY = vh / vidRect.height;
+                const rect = square.getBoundingClientRect();
+                const vidRect = video.getBoundingClientRect();
+                const relLeft = rect.left - vidRect.left;
+                const relTop = rect.top - vidRect.top;
+                const scaleX = vw / vidRect.width;
+                const scaleY = vh / vidRect.height;
 
-          const sx = Math.max(0, Math.floor(relLeft * scaleX));
-          const sy = Math.max(0, Math.floor(relTop * scaleY));
-          const sWidth = Math.max(1, Math.floor(rect.width * scaleX));
-          const sHeight = Math.max(1, Math.floor(rect.height * scaleY));
+                const sx = Math.max(0, Math.floor(relLeft * scaleX));
+                const sy = Math.max(0, Math.floor(relTop * scaleY));
+                const sWidth = Math.max(1, Math.floor(rect.width * scaleX));
+                const sHeight = Math.max(1, Math.floor(rect.height * scaleY));
 
-          const sxClamped = Math.min(sx, vw-1);
-          const syClamped = Math.min(sy, vh-1);
-          const swClamped = Math.min(sWidth, vw - sxClamped);
-          const shClamped = Math.min(sHeight, vh - syClamped);
+                const sxClamped = Math.min(sx, vw - 1);
+                const syClamped = Math.min(sy, vh - 1);
+                const swClamped = Math.min(sWidth, vw - sxClamped);
+                const shClamped = Math.min(sHeight, vh - syClamped);
 
-          if(swClamped > 0 && shClamped > 0){
-            const imgData = ctx.getImageData(sxClamped, syClamped, swClamped, shClamped);
-            const result = computeScoreFromImageData(imgData);
-            const score = result.score;
+                if (swClamped > 0 && shClamped > 0) {
+                    const imgData = ctx.getImageData(sxClamped, syClamped, swClamped, shClamped);
+                    const result = computeScoreFromImageData(imgData);
+                    const score = result.score;
 
-            range.value = score;
-            scoreText.textContent = score + '%';
-            // Met marge: alles boven 90% van het ijkpunt telt als rijp
-            const status = score >= 90 ? 'Rijp' : (score >= 50 ? 'Geleidelijk' : 'Onrijp');
-            statusText.textContent = 'Status: ' + status;
-            messageBox.textContent = `Score: ${score}% — Status: ${status}. (R=${Math.round(result.rAvg)}, G=${Math.round(result.gAvg)}, B=${Math.round(result.bAvg)})`;
+                    range.value = score;
+                    scoreText.textContent = score + '%';
+                    const status = score >= 90 ? 'Rijp' : (score >= 50 ? 'Geleidelijk' : 'Onrijp');
+                    statusText.textContent = 'Status: ' + status;
+                    messageBox.textContent = `Score: ${score}% — Status: ${status}. (R=${Math.round(result.rAvg)}, G=${Math.round(result.gAvg)}, B=${Math.round(result.bAvg)})`;
 
-            if(score > 75){
-              if(!lastPinged){
-                if(audioCtx.state === 'suspended'){
-                  audioCtx.resume().then(() => playPing());
-                }else{
-                  playPing();
+                    if (score > 75) {
+                        if (!lastPinged) {
+                            if (audioCtx.state === 'suspended') {
+                                audioCtx.resume().then(() => playPing());
+                            } else {
+                                playPing();
+                            }
+                            lastPinged = true;
+                        }
+                    } else {
+                        lastPinged = false;
+                    }
                 }
-                lastPinged = true;
-              }
-            }else{
-              lastPinged = false;
             }
-          }
         }
-      }
+    }
+    // --- AANPASSING EINDE ---
       // --- AANPASSING START ---
     // Verwijder 'requestAnimationFrame(processFrame);'
     // --- AANPASSING EINDE ---
@@ -270,6 +267,7 @@ messageBox.textContent = `Rijp ijkpunt vastgelegd (Dominantie=${refDominance.toF
   </script>
 </body>
 </html>
+
 
 
 
