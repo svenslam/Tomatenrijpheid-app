@@ -212,9 +212,8 @@ let lastVideoTime = -1; // Nieuwe variabele om tijd te volgen
         }
     }
     // --- AANPASSING EINDE ---
-      // --- AANPASSING START ---
-    // Verwijder 'requestAnimationFrame(processFrame);'
-    // --- AANPASSING EINDE ---
+      
+    requestAnimationFrame(processFrame);
     }
 
     calibrateBtn.addEventListener('click', ()=>{
@@ -267,6 +266,7 @@ messageBox.textContent = `Rijp ijkpunt vastgelegd (Dominantie=${refDominance.toF
   </script>
 </body>
 </html>
+
 
 
 
