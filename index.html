@@ -101,7 +101,14 @@
         video.srcObject = stream;
         await video.play();
         resizeAndPositionSquare();
-        requestAnimationFrame(processFrame);
+         // --- AANPASSING START ---
+        // Verwijder 'requestAnimationFrame(processFrame);'
+        // Voeg een event listener toe die de analyse start zodra de videodata geladen is.
+        video.onloadeddata = () => {
+            // We gebruiken een interval in plaats van requestAnimationFrame voor meer stabiliteit op iOS.
+            setInterval(processFrame, 100); // Analyseert elke 100 milliseconden (10 keer per seconde)
+        };
+        // --- AANPASSING EINDE ---
       }catch(err){
         messageBox.textContent = 'Kon de camera niet starten: ' + err.message;
       }
@@ -208,7 +215,9 @@ return {score, rAvg, gAvg, bAvg, dominance};
           }
         }
       }
-      requestAnimationFrame(processFrame);
+      // --- AANPASSING START ---
+    // Verwijder 'requestAnimationFrame(processFrame);'
+    // --- AANPASSING EINDE ---
     }
 
     calibrateBtn.addEventListener('click', ()=>{
@@ -261,6 +270,7 @@ messageBox.textContent = `Rijp ijkpunt vastgelegd (Dominantie=${refDominance.toF
   </script>
 </body>
 </html>
+
 
 
 
